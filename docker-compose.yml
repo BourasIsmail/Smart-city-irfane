@@ -92,9 +92,10 @@ services:
       -Cbootstrap.memory_lock=true
     healthcheck:
       test: ["CMD","curl","-sf","http://localhost:4200/"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
 
   # 4. QuantumLeap
   quantumleap:
