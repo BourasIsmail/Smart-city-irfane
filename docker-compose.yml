@@ -163,17 +163,17 @@ services:
     hostname: draco
     restart: unless-stopped
     networks: [fiware-net]
-    ports: ["9090:9090","5050:5050"]
+    ports: ["9091:9091","5050:5050"]
     depends_on:
       postgres: {condition: service_healthy}
     environment:
-      NIFI_WEB_HTTPS_PORT: "9090"
+      NIFI_WEB_HTTPS_PORT: "9091"
       SINGLE_USER_CREDENTIALS_USERNAME: ${DRACO_USER:-admin}
       SINGLE_USER_CREDENTIALS_PASSWORD: ${DRACO_PASSWORD:-draco2024ABC}
     volumes:
       - ./config/draco/templates:/opt/nifi/nifi-current/conf/templates
     healthcheck:
-      test: ["CMD","curl","-skf","https://localhost:9090/nifi/"]
+      test: ["CMD","curl","-skf","https://localhost:9091/nifi/"]
       interval: 30s
       timeout: 10s
       retries: 15
