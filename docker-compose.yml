@@ -90,12 +90,6 @@ services:
       -Cdiscovery.type=single-node
       -Cauth.host_based.enabled=false
       -Cbootstrap.memory_lock=true
-    healthcheck:
-      test: ["CMD","curl","-sf","http://localhost:4200/"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 90s
 
   # 4. QuantumLeap
   quantumleap:
@@ -106,7 +100,7 @@ services:
     networks: [fiware-net]
     ports: ["8668:8668"]
     depends_on:
-      cratedb: {condition: service_healthy}
+      cratedb: {condition: service_started}
     environment:
       CRATE_HOST: cratedb
       CRATE_PORT: "4200"
@@ -384,7 +378,7 @@ services:
     networks: [fiware-net]
     ports: ["3000:3000"]
     depends_on:
-      cratedb: {condition: service_healthy}
+      cratedb: {condition: service_started}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning
