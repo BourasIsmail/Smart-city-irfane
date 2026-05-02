@@ -224,8 +224,7 @@ services:
     depends_on:
       perseo-mongo: {condition: service_healthy}
     environment:
-      PERSEO_MONGO_HOST: perseo-mongo
-      PERSEO_MONGO_PORT: "27017"
+      PERSEO_MONGO_ENDPOINT: perseo-mongo:27017
       PERSEO_CORE_URL: http://perseo-core:8090
       PERSEO_ORION_URL: http://orion:1026
       PERSEO_LOG_LEVEL: WARN
