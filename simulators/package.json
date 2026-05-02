@@ -1,0 +1,19 @@
+{
+  "name": "smart-city-simulators",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js",
+    "traffic": "node traffic-simulator.js",
+    "tramway": "node tramway-simulator.js",
+    "temperature": "node temperature-simulator.js",
+    "grass": "node grass-simulator.js",
+    "all": "concurrently \"npm run traffic\" \"npm run tramway\" \"npm run temperature\" \"npm run grass\""
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}

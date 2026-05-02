@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.leaflet-container { width: 100%; height: 100%; border-radius: 0.75rem; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #111827; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+
+.sensor-card {
+  @apply bg-gray-900 border border-gray-800 rounded-xl p-5 transition-all duration-200 hover:border-gray-600;
+}
+
+.badge-healthy    { @apply bg-emerald-500/20 text-emerald-400 border border-emerald-500/30; }
+.badge-stressed   { @apply bg-red-500/20    text-red-400    border border-red-500/30; }
+.badge-dry        { @apply bg-amber-500/20  text-amber-400  border border-amber-500/30; }
+.badge-freeFlow   { @apply bg-emerald-500/20 text-emerald-400 border border-emerald-500/30; }
+.badge-moderate   { @apply bg-yellow-500/20 text-yellow-400 border border-yellow-500/30; }
+.badge-heavy      { @apply bg-orange-500/20 text-orange-400 border border-orange-500/30; }
+.badge-congestion { @apply bg-red-500/20    text-red-400    border border-red-500/30; }
+.badge-inService  { @apply bg-blue-500/20   text-blue-400   border border-blue-500/30; }
+.badge-stopped    { @apply bg-gray-500/20   text-gray-400   border border-gray-500/30; }

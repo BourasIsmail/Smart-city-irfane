@@ -1,0 +1,442 @@
+# =============================================================================
+#  FIWARE Smart City Digital Twin — Irfane, Rabat
+#  docker-compose.yml
+#  Services: Orion · Cygnus · QuantumLeap · Draco · Perseo · Keyrock · Wilma
+#            IoT Agent JSON · MongoDB · CrateDB · PostgreSQL · Grafana
+# =============================================================================
+
+version: "3.8"
+
+x-mongo-env: &mongo-env
+  MONGO_HOST: mongodb
+  MONGO_PORT: "27017"
+
+networks:
+  fiware-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+
+volumes:
+  mongodb-data:
+  postgres-data:
+  crate-data:
+  grafana-data:
+  keyrock-data:
+
+services:
+
+  # 1. MongoDB
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    hostname: mongodb
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["27017:27017"]
+    volumes: [mongodb-data:/data/db]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-smartcity2024}
+    healthcheck:
+      test: ["CMD","mongosh","--eval","db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    command: --nojournal
+
+  # 2. Orion Context Broker
+  orion:
+    image: fiware/orion:3.10.1
+    container_name: orion
+    hostname: orion
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["1026:1026"]
+    depends_on:
+      mongodb: {condition: service_healthy}
+    command: >
+      -dbhost mongodb
+      -dbuser ${MONGO_ROOT_USER:-admin}
+      -dbpwd ${MONGO_ROOT_PASSWORD:-smartcity2024}
+      -dbAuthDb admin
+      -logLevel WARN
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:1026/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # 3. CrateDB
+  cratedb:
+    image: crate:5.4
+    container_name: cratedb
+    hostname: cratedb
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["4200:4200","5432:5432"]
+    volumes: [crate-data:/data]
+    environment:
+      CRATE_HEAP_SIZE: ${CRATE_HEAP_SIZE:-512m}
+    command: >
+      crate
+      -Cnetwork.host=_site_
+      -Cdiscovery.type=single-node
+      -Cauth.host_based.enabled=false
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:4200/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # 4. QuantumLeap
+  quantumleap:
+    image: smartsdk/quantumleap:0.9.0
+    container_name: quantumleap
+    hostname: quantumleap
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["8668:8668"]
+    depends_on:
+      cratedb: {condition: service_healthy}
+    environment:
+      CRATE_HOST: cratedb
+      CRATE_PORT: "4200"
+      LOGLEVEL: WARNING
+      USE_GEOCODING: "false"
+      REDIS_HOST: ""
+      REDIS_PORT: ""
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:8668/version"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  # 5. Cygnus
+  cygnus:
+    image: fiware/cygnus-ngsi:3.4.0
+    container_name: cygnus
+    hostname: cygnus
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["5055:5055","5080:5080"]
+    depends_on:
+      mongodb: {condition: service_healthy}
+    environment:
+      CYGNUS_MONGO_HOSTS: mongodb:27017
+      CYGNUS_MONGO_USER: ${MONGO_ROOT_USER:-admin}
+      CYGNUS_MONGO_PASS: ${MONGO_ROOT_PASSWORD:-smartcity2024}
+      CYGNUS_MONGO_AUTH_SOURCE: admin
+      CYGNUS_MONGO_SERVICE_PORT: "5080"
+      CYGNUS_LOG_LEVEL: WARN
+      CYGNUS_SERVICE_PORT: "5080"
+      CYGNUS_API_PORT: "5055"
+      CYGNUS_MONGO_ATTR_PERSISTENCE: row
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:5080/v1/version"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  # 6. PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    hostname: postgres
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["5433:5432"]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fiware}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fiware2024}
+      POSTGRES_DB: ${POSTGRES_DB:-smartcity}
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U ${POSTGRES_USER:-fiware}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # 7. Draco / Apache NiFi
+  draco:
+    image: ging/fiware-draco:2.1.0
+    container_name: draco
+    hostname: draco
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["9090:9090","5050:5050"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      NIFI_WEB_HTTPS_PORT: "9090"
+      SINGLE_USER_CREDENTIALS_USERNAME: ${DRACO_USER:-admin}
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${DRACO_PASSWORD:-draco2024ABC}
+    volumes:
+      - ./config/draco/templates:/opt/nifi/nifi-current/conf/templates
+    healthcheck:
+      test: ["CMD","curl","-skf","https://localhost:9090/nifi/"]
+      interval: 30s
+      timeout: 10s
+      retries: 15
+
+  # 8. Perseo — dedicated MongoDB
+  perseo-mongo:
+    image: mongo:6.0
+    container_name: perseo-mongo
+    hostname: perseo-mongo
+    restart: unless-stopped
+    networks: [fiware-net]
+    healthcheck:
+      test: ["CMD","mongosh","--eval","db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    command: --nojournal
+
+  # 8a. Perseo Core (CEP engine)
+  perseo-core:
+    image: telefonicaiot/perseo-core:1.13.0
+    container_name: perseo-core
+    hostname: perseo-core
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["8090:8090"]
+    depends_on: [perseo-mongo]
+    environment:
+      PERSEO_FE_URL: http://perseo-fe:9090
+      MAX_AGE: "6000"
+
+  # 8b. Perseo FE (rule management API)
+  perseo-fe:
+    image: telefonicaiot/perseo-fe:1.27.0
+    container_name: perseo-fe
+    hostname: perseo-fe
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["9090:9090"]
+    depends_on:
+      perseo-mongo: {condition: service_healthy}
+    environment:
+      PERSEO_MONGO_HOST: perseo-mongo
+      PERSEO_MONGO_PORT: "27017"
+      PERSEO_CORE_URL: http://perseo-core:8090
+      PERSEO_ORION_URL: http://orion:1026
+      PERSEO_LOG_LEVEL: WARN
+      PERSEO_SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      PERSEO_SMTP_PORT: ${SMTP_PORT:-587}
+      PERSEO_SMTP_SECURE: "false"
+      PERSEO_SMTP_USER: ${SMTP_USER:-}
+      PERSEO_SMTP_PASS: ${SMTP_PASS:-}
+      PERSEO_SMS_URL: ${PERSEO_SMS_URL:-}
+      PERSEO_SMS_API_KEY: ${PERSEO_SMS_API_KEY:-}
+      PERSEO_SMS_API_SECRET: ${PERSEO_SMS_API_SECRET:-}
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:9090/version"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  # 9. MySQL (Keyrock backend)
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-keyrock
+    hostname: mysql
+    restart: unless-stopped
+    networks: [fiware-net]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root2024}
+      MYSQL_DATABASE: ${KEYROCK_DB:-idm}
+      MYSQL_USER: ${KEYROCK_DB_USER:-idm}
+      MYSQL_PASSWORD: ${KEYROCK_DB_PASS:-idm2024}
+    volumes:
+      - ./config/mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD","mysqladmin","ping","-h","localhost","-u","root","-p${MYSQL_ROOT_PASSWORD:-root2024}"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # 9a. Keyrock Identity Manager
+  keyrock:
+    image: fiware/idm:8.3.3
+    container_name: keyrock
+    hostname: keyrock
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["3005:3005"]
+    depends_on:
+      mysql: {condition: service_healthy}
+    volumes: [keyrock-data:/opt/fiware-idm/]
+    environment:
+      DEBUG: "idm:*"
+      IDM_DB_HOST: mysql
+      IDM_DB_PORT: "3306"
+      IDM_DB_NAME: ${KEYROCK_DB:-idm}
+      IDM_DB_USER: ${KEYROCK_DB_USER:-idm}
+      IDM_DB_PASS: ${KEYROCK_DB_PASS:-idm2024}
+      IDM_HOST: http://localhost:3005
+      IDM_PORT: "3005"
+      IDM_HTTPS_ENABLED: "false"
+      IDM_CORS_ENABLED: "true"
+      IDM_CORS_ORIGIN: "*"
+      IDM_ADMIN_USER: ${KEYROCK_ADMIN_USER:-admin}
+      IDM_ADMIN_EMAIL: ${KEYROCK_ADMIN_EMAIL:-admin@irfane-rabat.ma}
+      IDM_ADMIN_PASS: ${KEYROCK_ADMIN_PASS:-Admin1234!}
+      IDM_SESSION_SECRET: ${IDM_SESSION_SECRET:-super-secret-session-key-change-me}
+      IDM_ENCRYPTION_KEY: ${IDM_ENCRYPTION_KEY:-super-secret-encrypt-key-ch}
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:3005/version"]
+      interval: 20s
+      timeout: 5s
+      retries: 15
+
+  # 10. Wilma PEP Proxy
+  wilma:
+    image: fiware/pep-proxy:8.4.0
+    container_name: wilma
+    hostname: wilma
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["1027:1027"]
+    depends_on:
+      keyrock: {condition: service_healthy}
+      orion: {condition: service_healthy}
+    environment:
+      PEP_PROXY_APP_HOST: orion
+      PEP_PROXY_APP_PORT: "1026"
+      PEP_PROXY_PORT: "1027"
+      PEP_PROXY_IDM_HOST: keyrock
+      PEP_PROXY_IDM_PORT: "3005"
+      PEP_PROXY_IDM_SSL_ENABLED: "false"
+      PEP_PROXY_APP_ID: ${WILMA_APP_ID:-}
+      PEP_PROXY_USERNAME: ${WILMA_USERNAME:-}
+      PEP_PASSWORD: ${WILMA_PASSWORD:-}
+      PEP_PROXY_AUTH_ENABLED: "true"
+      PEP_PROXY_MAGIC_KEY: ${WILMA_MAGIC_KEY:-change-me-magic-key}
+      PEP_PROXY_PUBLIC_PATHS: "/version"
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:1027/version"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  # 11. Eclipse Mosquitto (MQTT)
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    hostname: mosquitto
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["1883:1883","9001:9001"]
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  # 11a. IoT Agent JSON
+  iot-agent:
+    image: fiware/iotagent-json:3.4.0
+    container_name: iot-agent
+    hostname: iot-agent
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["4041:4041","7896:7896"]
+    depends_on:
+      mongodb: {condition: service_healthy}
+      orion: {condition: service_healthy}
+      mosquitto: {condition: service_started}
+    environment:
+      IOTA_CB_HOST: orion
+      IOTA_CB_PORT: "1026"
+      IOTA_CB_NGSI_VERSION: v2
+      IOTA_MONGO_HOST: mongodb
+      IOTA_MONGO_PORT: "27017"
+      IOTA_MONGO_DB: iotagentjson
+      IOTA_MONGO_USER: ${MONGO_ROOT_USER:-admin}
+      IOTA_MONGO_PASSWORD: ${MONGO_ROOT_PASSWORD:-smartcity2024}
+      IOTA_MONGO_AUTH_SOURCE: admin
+      IOTA_MQTT_HOST: mosquitto
+      IOTA_MQTT_PORT: "1883"
+      IOTA_HTTP_PORT: "7896"
+      IOTA_PROVIDER_URL: http://iot-agent:4041
+      IOTA_DEFAULT_RESOURCE: /iot/json
+      IOTA_REGISTRY_TYPE: mongodb
+      IOTA_LOG_LEVEL: WARN
+      IOTA_TIMESTAMP: "true"
+      IOTA_AUTOCAST: "true"
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:4041/iot/about"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  # 12. Grafana
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    hostname: grafana
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["3000:3000"]
+    depends_on:
+      cratedb: {condition: service_healthy}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-grafana2024}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_INSTALL_PLUGINS: "crate-datasource"
+      GF_SERVER_ROOT_URL: http://localhost:3000
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:3000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  # 13. Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    hostname: frontend
+    restart: unless-stopped
+    networks: [fiware-net]
+    ports: ["3001:3000"]
+    depends_on:
+      orion: {condition: service_healthy}
+      quantumleap: {condition: service_healthy}
+      keyrock: {condition: service_healthy}
+    environment:
+      NEXT_PUBLIC_ORION_URL: http://localhost:1027
+      NEXT_PUBLIC_ORION_SERVICE: irfane
+      NEXT_PUBLIC_ORION_SERVICE_PATH: /
+      NEXT_PUBLIC_QL_URL: http://localhost:8668
+      NEXTAUTH_URL: http://localhost:3001
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-nextauth-secret}
+      KEYROCK_CLIENT_ID: ${KEYROCK_CLIENT_ID:-}
+      KEYROCK_CLIENT_SECRET: ${KEYROCK_CLIENT_SECRET:-}
+      KEYROCK_ISSUER: http://localhost:3005/oauth2
+      NEXT_PUBLIC_GRAFANA_URL: http://localhost:3000
+      NEXT_PUBLIC_PERSEO_URL: http://localhost:9090
+    healthcheck:
+      test: ["CMD","curl","-sf","http://localhost:3000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  # 14. Bootstrap (one-shot — registers subscriptions + Perseo rules)
+  bootstrap:
+    image: curlimages/curl:8.4.0
+    container_name: bootstrap
+    networks: [fiware-net]
+    depends_on:
+      orion: {condition: service_healthy}
+      cygnus: {condition: service_healthy}
+      quantumleap: {condition: service_healthy}
+      perseo-fe: {condition: service_healthy}
+    volumes:
+      - ./config/bootstrap:/bootstrap
+    entrypoint: ["/bin/sh","/bootstrap/register-subscriptions.sh"]
+    restart: "no"

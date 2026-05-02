@@ -1,0 +1,10 @@
+require("dotenv").config();
+console.log("🏙️  FIWARE Smart City Irfane — Sensor Simulators");
+console.log("=".repeat(55));
+console.log(`   Orion URL : ${process.env.ORION_URL || "http://localhost:1026"}`);
+console.log(`   Service   : ${process.env.FIWARE_SERVICE || "irfane"}`);
+console.log("=".repeat(55));
+require("./traffic-simulator");
+require("./tramway-simulator");
+require("./temperature-simulator");
+require("./grass-simulator");
